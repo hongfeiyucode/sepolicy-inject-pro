@@ -47,6 +47,24 @@ Add a filename transition:
 
 All options can add -o <output file> to output to another file
 
+## Add auto allow patch support
+The patch will work like this:
+
+./sepolicy-inject --auto -P sepolicy
+This will allow all possible transition (just like selinux disabled)
+
+./sepolicy-inject --auto -s su -P sepolicy
+This will allow all transitions from su to any type
+
+./sepolicy-inject --auto -t su -P sepolicy
+This will allow all transitions from any type to su
+
+./sepolicy-inject --auto -c file -P sepolicy
+This will allow any transitions involving the class file
+
+./sepolicy-inject --auto -s su -t system_data_file -P sepolicy
+This will allow all transitions from su to system_data_file
+
 ## TODO
 
 - [ ] permissive $domain;
