@@ -90,8 +90,8 @@ Add --not option to add a DENY rule (or rather delete allow)
 <!-- typeattribute <type>domain <attribute>unconfined？？ -->
 <!-- typeattribute $1 mlstrustedsubject;   
 	typeattribute $1 unconfineddomain;    -->
-- [ ] 遍历 permissive $domain;
-- [ ] 遍历 unconfined_domain($domain)  
+- [x] 遍历 permissive $domain;
+- [x] 遍历 unconfined_domain($domain)  
 - [x] 删除功能
 <!-- Add --not option to add a DENY rule (or rather delete allow) -->
 - [ ] 删除多余，重复，矛盾的语句。确保文件小于之前

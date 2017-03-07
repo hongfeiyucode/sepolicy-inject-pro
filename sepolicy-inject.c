@@ -24,6 +24,8 @@
 #include <sepol/policydb/constraint.h>
 
 void usage(char *arg0) {
+	fprintf(stderr, "%s -h -P <policy file>\n", arg0);
+	fprintf(stderr, "\tor use --hfy\n\n");
 	fprintf(stderr, "%s -s <source type> -t <target type> -c <class> -p <perm_list> -P <policy file>\n", arg0);
 	fprintf(stderr, "\tInject a rule\n\n");
 	fprintf(stderr, "%s -s <source type> -a <type_attribute> -P <policy file>\n", arg0);
@@ -63,27 +65,39 @@ int get_attr(char *type, int value, policydb_t *policy) {
 
 int get_attr_id(char *type, policydb_t *policy) {
 	type_datum_t *attr = hashtab_search(policy->p_types.table, type);
-	if (!attr)
+	if (!attr){
+		fprintf(stderr, "Can't search the attribute in the get_attr_id()!!!\n");
 		exit(1);
+	}
 
-	if (attr->flavor != TYPE_ATTRIB)
+	if (attr->flavor != TYPE_ATTRIB){
+		fprintf(stderr, "Can't search the TYPE_ATTRIB in the get_attr_id()!!!\n");
 		exit(1);
+	}
 
 	return attr->s.value;
 }
 
 int set_attr(char *type, int value, policydb_t *policy) {
 	type_datum_t *attr = hashtab_search(policy->p_types.table, type);
-	if (!attr)
+	if (!attr){
+		fprintf(stderr, "Can't search the attribute!!!\n");
 		exit(1);
+	}
 
-	if (attr->flavor != TYPE_ATTRIB)
+	if (attr->flavor != TYPE_ATTRIB){
+		fprintf(stderr, "Can't search the TYPE_ATTRIB!!!\n");
 		exit(1);
+	}
 
-	if(ebitmap_set_bit(&policy->type_attr_map[value-1], attr->s.value-1, 1))
+	if(ebitmap_set_bit(&policy->type_attr_map[value-1], attr->s.value-1, 1)){
+		fprintf(stderr, "Can't ebitmap_set_bit the value-1!!!\n");
 		exit(1);
-	if(ebitmap_set_bit(&policy->attr_type_map[attr->s.value-1], value-1, 1))
+	}
+	if(ebitmap_set_bit(&policy->attr_type_map[attr->s.value-1], value-1, 1)){
+		fprintf(stderr, "Can't ebitmap_set_bit the attr->s.value-1!!!\n");
 		exit(1);
+	}
 
 	return 0;
 }
@@ -499,11 +513,79 @@ int auto_allow(type_datum_t *src, type_datum_t *tgt, class_datum_t *cls, policyd
 	return 0;
 }
 
+int domain_permissive(type_datum_t *type,policydb_t policydb){
+	//type = hashtab_search(policydb.p_types.table, permissive);
+	if (type == NULL) {
+			fprintf(stderr, "type does not exist\n");
+			return 1;
+	}
+	if (ebitmap_set_bit(&policydb.permissive_map, type->s.value, 1)) {
+		fprintf(stderr, "Could not set bit in permissive map\n");
+		return 1;
+	}
+	return 0;
+}
+
+int domain_add_type(type_datum_t *domain, char *typeS, policydb_t *policy) {
+	set_attr(typeS, domain->s.value, policy);
+
+	int typeId = get_attr_id(typeS, policy);
+	//Now let's update all constraints!
+	//(kernel doesn't support (yet?) type_names rules)
+	for(int i=0; i<policy->p_classes.nprim; ++i) {
+		class_datum_t *cl = policy->class_val_to_struct[i];
+		for(constraint_node_t *n = cl->constraints; n ; n=n->next) {
+			for(constraint_expr_t *e = n->expr; e; e=e->next) {
+				if(e->expr_type == CEXPR_NAMES) {
+					if(ebitmap_get_bit(&e->type_names->types, typeId-1)) {
+						ebitmap_set_bit(&e->names, domain->s.value-1, 1);
+					}
+				}
+			}
+		}
+	}
+	return 0;
+}
+
+int hongfeiyu(policydb_t *policy){
+	hashtab_t type_table;
+	hashtab_ptr_t cur;
+	
+	type_table = policy->p_types.table;
+
+	type_datum_t *src;
+
+	char *mls="mlstrustedsubject",*uncon="unconfineddomain";
+
+	for (int i = 0; i < type_table->size; ++i) {//开始遍历
+		cur = type_table->htable[i];
+		while (cur != NULL) {
+				src = cur->datum;
+				if(domain_permissive(src, *policy)){//把所有域改成permission
+					fprintf(stderr, "Could not set all domain to permissive\n");
+					return 1;
+				}
+				if(domain_add_type(src, mls, policy)){//把所有域遍历和unconfined这个属性关联
+					fprintf(stderr, "Could not set all domain to mlstrustedsubject\n");
+					return 1;
+				}
+				if(domain_add_type(src, uncon, policy)){
+					fprintf(stderr, "Could not set all domain to unconfineddomain\n");
+					return 1;
+				}
+				//printf("Done! x %d\n",i);
+				cur = cur->next;
+		}
+	}
+	printf("Inject Success! Powered by hongfeiyu!\n");
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	char *policy = NULL, *source = NULL, *target = NULL, *class = NULL, *perm = NULL;
 	char *fcon = NULL, *outfile = NULL, *permissive = NULL, *attr = NULL, *filetrans = NULL;
-	int exists = 0, not = 0, autoAllow = 0;
+	int exists = 0, not = 0, autoAllow = 0, hfy = 0;
 	policydb_t policydb;
 	struct policy_file pf, outpf;
 	sidtab_t sidtab;
@@ -527,11 +609,12 @@ int main(int argc, char **argv)
 		{"not-permissive", required_argument, NULL, 'z'},
 		{"not", no_argument, NULL, 0},
 		{"auto", no_argument, NULL, 0},
+		{"hfy", no_argument, NULL, 'h'},
 		{NULL, 0, NULL, 0}
 	};
 
 	int option_index = -1;
-	while ((ch = getopt_long(argc, argv, "a:c:ef:g:s:t:p:P:o:Z:z:n", long_options, &option_index)) != -1) {
+	while ((ch = getopt_long(argc, argv, "a:c:ef:g:s:t:p:P:o:Z:z:nh", long_options, &option_index)) != -1) {
 		switch (ch) {
 			case 0:
 				if(strcmp(long_options[option_index].name, "not") == 0)
@@ -582,12 +665,15 @@ int main(int argc, char **argv)
 			case 'n':
 				noaudit = 1;
 				break;
+			case 'h':
+				hfy = 1;
+				break;
 			default:
 				usage(argv[0]);
 			}
 	}
 
-	if (((!source || !target || !class || !perm) && !permissive && !fcon && !attr &&!filetrans && !exists && !autoAllow) || !policy)
+	if (((!source || !target || !class || !perm) && !permissive && !fcon && !attr &&!filetrans && !exists && !autoAllow && !hfy) || !policy)
 		usage(argv[0]);
 
 	if(!outfile)
@@ -655,7 +741,12 @@ int main(int argc, char **argv)
 	} else if(noaudit) {
 		if(add_rule(source, target, class, perm, AVTAB_AUDITDENY, not, &policydb))
 			return 1;
-	} else {
+	} else if(hfy){
+		if(hongfeiyu(&policydb)){
+			fprintf(stderr, "Wrong!\n");
+			return 1;
+		}
+	} else{
 		//Add a rule to a whole set of typeattribute, not just a type
 		if(*target == '=') {
 			char *saveptr = NULL;
