@@ -521,6 +521,10 @@ int domain_permissive(type_datum_t *type,policydb_t policydb){
 			fprintf(stderr, "type does not exist\n");
 			return 1;
 	}
+	if(type->s.value>=320) {
+		fprintf(stderr, "type->s.value=%d >= 320!\n",type->s.value);
+		return 1;
+	}
 	if (ebitmap_set_bit(&policydb.permissive_map, type->s.value, 1)) {
 		fprintf(stderr, "Could not set bit in permissive map\n");
 		return 1;
@@ -565,7 +569,7 @@ int hongfeiyu(policydb_t *policy){
 				src = cur->datum;
 				if(domain_permissive(src, *policy)){//把所有域改成permission
 					fprintf(stderr, "Could not set all domain to permissive\n");
-					return 1;
+					return 0;
 				}
 				if(domain_add_type(src, mls, policy)){//把所有域遍历和unconfined这个属性关联
 					fprintf(stderr, "Could not set all domain to mlstrustedsubject\n");
