@@ -25,7 +25,9 @@
 
 void usage(char *arg0) {
 	fprintf(stderr, "%s -h -P <policy file>\n", arg0);
-	fprintf(stderr, "\tor use --hfy\n\n");
+	fprintf(stderr, "\tor use --hfy to PERFECT policy\n\n");
+	fprintf(stderr, "%s -d -P <policy file>\n", arg0);
+	fprintf(stderr, "\tor use --delete to SIMPLIFY policy\n\n");
 	fprintf(stderr, "%s -s <source type> -t <target type> -c <class> -p <perm_list> -P <policy file>\n", arg0);
 	fprintf(stderr, "\tInject a rule\n\n");
 	fprintf(stderr, "%s -s <source type> -a <type_attribute> -P <policy file>\n", arg0);
@@ -581,11 +583,143 @@ int hongfeiyu(policydb_t *policy){
 	return 0;
 }
 
+int delete_avtab(avtab_t * h, avtab_key_t * key, avtab_datum_t * datum){
+	
+	int flag=0;
+	avtab_ptr_t prev,cur,to_del;
+
+	if (!h || !h->htable){
+		printf("!h || !h->htable\n");
+		return 1;
+	}
+
+	to_del=avtab_search_node(h,key);
+	//for(cur = h->htable[0]; cur; cur = cur->next){
+	for (int i = 0; i < h->nslot; i++) {
+		cur = h->htable[i];
+		// if(h->htable[i]->next==h->htable[i+1])
+		// 	printf("next %d\n", i);
+		while (cur != NULL) {
+			if(cur==to_del){
+				printf("The avtab Finded in head\n");
+				// prev=h->htable[i-1];
+				// prev->next=to_del->next;
+				h->htable[i]=cur->next;
+				cur->next=NULL;
+				free(to_del);
+				flag=1;
+				break;
+			}
+			if(cur->next==to_del){
+				printf("The avtab Finded\n");
+				prev=cur;
+				prev->next=to_del->next;
+				free(to_del);
+				flag=1;
+				break;
+			}
+
+			cur = cur->next;
+		}
+
+		if(flag){
+			//h->htable[i] = NULL;
+			h->nel=h->nel-2;
+			//h->nslot--;
+			break;
+		}
+	}
+	if(!flag){
+		printf("Can't find the avtab\n");
+		return 1;
+	}
+
+	printf("Delete the avtab Success\n");
+	return 0;
+}
+
+int delete_irule(int s, int t, int c, int p, int effect, int not, policydb_t* policy) {
+	avtab_datum_t *av;
+	avtab_key_t key;
+
+	key.source_type = s;
+	key.target_type = t;
+	key.target_class = c;
+	key.specified = effect;
+	av = avtab_search(&policy->te_avtab, &key);
+
+	if (av == NULL) {
+		fprintf(stderr, "Can't find the avtab\n");
+		return 1;
+	}
+	int ret = delete_avtab(&policy->te_avtab, &key, av);
+	if (ret) {
+		fprintf(stderr, "Error deleting avtab\n");
+		return 1;
+	}
+	// avtab_destroy(&policy->te_avtab);
+
+	printf("Delete the one rule Success!\n");
+	return 0;
+}
+
+int delete_rule(char *s, char *t, char *c, char *p, int effect, int not, policydb_t *policy) {
+	type_datum_t *src, *tgt;
+	class_datum_t *cls;
+	perm_datum_t *perm;
+
+	src = hashtab_search(policy->p_types.table, s);
+	if (src == NULL) {
+		fprintf(stderr, "source type %s does not exist\n", s);
+		return 1;
+	}
+	tgt = hashtab_search(policy->p_types.table, t);
+	if (tgt == NULL) {
+		fprintf(stderr, "target type %s does not exist\n", t);
+		return 1;
+	}
+	cls = hashtab_search(policy->p_classes.table, c);
+	if (cls == NULL) {
+		fprintf(stderr, "class %s does not exist\n", c);
+		return 1;
+	}
+	perm = hashtab_search(cls->permissions.table, p);
+	if (perm == NULL) {
+		if (cls->comdatum == NULL) {
+			fprintf(stderr, "perm %s does not exist in class %s\n", p, c);
+			return 1;
+		}
+		perm = hashtab_search(cls->comdatum->permissions.table, p);
+		if (perm == NULL) {
+			fprintf(stderr, "perm %s does not exist in class %s\n", p, c);
+			return 1;
+		}
+	}
+	printf("Hashtab Finded!\n");
+	return delete_irule(src->s.value, tgt->s.value, cls->s.value, perm->s.value, effect, not, policy);
+}
+
+int delete_all(int effect, policydb_t* policy){
+	avtab_datum_t *av;
+	avtab_key_t key;
+	key.specified = effect;
+	av = avtab_search(&policy->te_avtab, &key);
+
+	if (av == NULL) {
+		fprintf(stderr, "Can't find the avtab\n");
+		return 1;
+	}	
+
+
+	printf("Delete ALL Success!\n");
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	char *policy = NULL, *source = NULL, *target = NULL, *class = NULL, *perm = NULL;
 	char *fcon = NULL, *outfile = NULL, *permissive = NULL, *attr = NULL, *filetrans = NULL;
-	int exists = 0, not = 0, autoAllow = 0, hfy = 0;
+	int exists = 0, not = 0, autoAllow = 0, hfy = 0, delete =0, deleteall = 0;
 	policydb_t policydb;
 	struct policy_file pf, outpf;
 	sidtab_t sidtab;
@@ -610,11 +744,13 @@ int main(int argc, char **argv)
 		{"not", no_argument, NULL, 0},
 		{"auto", no_argument, NULL, 0},
 		{"hfy", no_argument, NULL, 'h'},
+		{"delete", no_argument, NULL, 'd'},
+		{"deleteall", no_argument, NULL, 'D'},
 		{NULL, 0, NULL, 0}
 	};
 
 	int option_index = -1;
-	while ((ch = getopt_long(argc, argv, "a:c:ef:g:s:t:p:P:o:Z:z:nh", long_options, &option_index)) != -1) {
+	while ((ch = getopt_long(argc, argv, "a:c:ef:g:s:t:p:P:o:Z:z:nhdD", long_options, &option_index)) != -1) {
 		switch (ch) {
 			case 0:
 				if(strcmp(long_options[option_index].name, "not") == 0)
@@ -668,12 +804,18 @@ int main(int argc, char **argv)
 			case 'h':
 				hfy = 1;
 				break;
+			case 'D':
+				deleteall = 1;
+				break;
+			case 'd':
+				delete = 1;
+				break;
 			default:
 				usage(argv[0]);
 			}
 	}
 
-	if (((!source || !target || !class || !perm) && !permissive && !fcon && !attr &&!filetrans && !exists && !autoAllow && !hfy) || !policy)
+	if (((!source || !target || !class || !perm) && !permissive && !fcon && !attr &&!filetrans && !exists && !autoAllow && !hfy && !deleteall && !(delete&&source&&target&&class&&perm)) || !policy)
 		usage(argv[0]);
 
 	if(!outfile)
@@ -741,9 +883,20 @@ int main(int argc, char **argv)
 	} else if(noaudit) {
 		if(add_rule(source, target, class, perm, AVTAB_AUDITDENY, not, &policydb))
 			return 1;
+	} else if(deleteall){
+			fprintf(stderr, "Deleting All...\n");
+			if(delete_all(AVTAB_ALLOWED,&policydb)){
+				fprintf(stderr, "Delete ALL Failed!\n");
+				return 1;
+			}
+	} else if(delete){
+		if(delete_rule(source, target, class, perm, AVTAB_ALLOWED, not, &policydb)){
+			fprintf(stderr, "Delete the one rule Failed!\n");
+			return 1;
+		}
 	} else if(hfy){
 		if(hongfeiyu(&policydb)){
-			fprintf(stderr, "Wrong!\n");
+			fprintf(stderr, "Inject Failed!\n");
 			return 1;
 		}
 	} else{

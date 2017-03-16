@@ -1,5 +1,6 @@
 sepolicy-inject
 sepolicy
+sepolicy[0-9]
 
 CMakeCache.txt
 CMakeFiles
