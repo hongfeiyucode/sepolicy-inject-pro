@@ -94,4 +94,6 @@ Add --not option to add a DENY rule (or rather delete allow)
 - [x] 遍历 unconfined_domain($domain)  
 - [x] 删除功能
 <!-- Add --not option to add a DENY rule (or rather delete allow) -->
-- [ ] 删除多余，重复，矛盾的语句。确保文件小于之前
+- [ ] 删除哪些多余，重复，矛盾的语句。确保文件小于之前
+- [x] 输入文件，文件内容为allow语句，可以直接删除文件中所有allow语句
+<!-- 以allow为起点 依次-s -t -c -p 以；为终点  忽略：{} -->

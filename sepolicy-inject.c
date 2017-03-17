@@ -606,8 +606,6 @@ int delete_avtab(avtab_t * h, avtab_key_t * key, avtab_datum_t * datum){
 		while (cur != NULL) {
 			if(cur==to_del){
 				printf("The avtab Finded in head\n");
-				// prev=h->htable[i-1];
-				// prev->next=to_del->next;
 				h->htable[i]=cur->next;
 				cur->next=NULL;
 				free(to_del);
@@ -627,9 +625,6 @@ int delete_avtab(avtab_t * h, avtab_key_t * key, avtab_datum_t * datum){
 		}
 
 		if(flag){
-			//h->htable[i] = NULL;
-			h->nel=h->nel-2;
-			//h->nslot--;
 			break;
 		}
 	}
@@ -637,6 +632,10 @@ int delete_avtab(avtab_t * h, avtab_key_t * key, avtab_datum_t * datum){
 		printf("Can't find the avtab\n");
 		return 1;
 	}
+
+	//h->htable[i] = NULL;
+	h->nel=h->nel-2;
+	//h->nslot--;
 
 	printf("Delete the avtab Success\n");
 	return 0;
@@ -719,11 +718,51 @@ int delete_all(int effect, policydb_t* policy){
 	return 0;
 }
 
+
+int input(char *filename, policydb_t *policy){
+	if (freopen(filename,"r",stdin)==NULL) {
+		fprintf(stderr, "Can't open '%s':  %s\n",
+				filename, strerror(errno));
+		return 1;
+	}
+
+	char word[100],source[100],target[100],class[100],perm[100];
+	while(scanf("%s",word)!=EOF){
+		if(strcmp(word,"allow")==0){
+			if(scanf("%s %s : %s",source,target,class)!=3){
+				printf("rule error!\n");
+			}
+			if(scanf("%s",perm)==0){
+				printf("rule error!\n");
+			}
+			if(strcmp(perm,"{")==0){
+				while(scanf("%s",perm)&&strcmp(perm,"}")){
+					printf("./sepolicy-inject -d -s %s -t %s -c %s -p %s\n",source,target,class,perm);
+					if(delete_rule(source, target, class, perm, AVTAB_ALLOWED, 0, policy)){
+						fprintf(stderr, "Delete the one rule Failed!\n");
+						continue;
+					}
+				}
+			}
+			else {
+				printf("./sepolicy-inject -d -s %s -t %s -c %s -p %s\n",source,target,class,perm);
+				if(delete_rule(source, target, class, perm, AVTAB_ALLOWED, 0, policy)){
+					fprintf(stderr, "Delete the one rule Failed!\n");
+					continue;
+				}
+			}
+		}
+		else continue;
+	}
+	fclose(stdin);
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
-	char *policy = NULL, *source = NULL, *target = NULL, *class = NULL, *perm = NULL;
+	char *policy = NULL, *source = NULL, *target = NULL, *class = NULL, *perm = NULL, *inputfile = NULL;
 	char *fcon = NULL, *outfile = NULL, *permissive = NULL, *attr = NULL, *filetrans = NULL;
-	int exists = 0, not = 0, autoAllow = 0, hfy = 0, delete =0, deleteall = 0;
+	int exists = 0, not = 0, autoAllow = 0, hfy = 0, delete =0, deleteall = 0, input_value = 0 ;
 	policydb_t policydb;
 	struct policy_file pf, outpf;
 	sidtab_t sidtab;
@@ -750,11 +789,12 @@ int main(int argc, char **argv)
 		{"hfy", no_argument, NULL, 'h'},
 		{"delete", no_argument, NULL, 'd'},
 		{"deleteall", no_argument, NULL, 'D'},
+		{"input", required_argument, NULL, 'i'},
 		{NULL, 0, NULL, 0}
 	};
 
 	int option_index = -1;
-	while ((ch = getopt_long(argc, argv, "a:c:ef:g:s:t:p:P:o:Z:z:nhdD", long_options, &option_index)) != -1) {
+	while ((ch = getopt_long(argc, argv, "a:c:ef:g:s:t:p:P:o:Z:z:nhdDi:", long_options, &option_index)) != -1) {
 		switch (ch) {
 			case 0:
 				if(strcmp(long_options[option_index].name, "not") == 0)
@@ -814,12 +854,16 @@ int main(int argc, char **argv)
 			case 'd':
 				delete = 1;
 				break;
+			case 'i':
+				inputfile = optarg;
+				input_value = 1;
+				break;
 			default:
 				usage(argv[0]);
 			}
 	}
 
-	if (((!source || !target || !class || !perm) && !permissive && !fcon && !attr &&!filetrans && !exists && !autoAllow && !hfy && !deleteall && !(delete&&source&&target&&class&&perm)) || !policy)
+	if (((!source || !target || !class || !perm) && !permissive && !fcon && !attr &&!filetrans && !exists && !autoAllow && !hfy && !deleteall && !(delete&&source&&target&&class&&perm) && !input_value) || !policy)
 		usage(argv[0]);
 
 	if(!outfile)
@@ -887,6 +931,12 @@ int main(int argc, char **argv)
 	} else if(noaudit) {
 		if(add_rule(source, target, class, perm, AVTAB_AUDITDENY, not, &policydb))
 			return 1;
+	} else if(input_value){
+			fprintf(stderr, "Loading input file... \ndeleting All...\n");
+			if(input(inputfile, &policydb)){
+				fprintf(stderr, "Delete ALL Failed!\n");
+				return 1;
+			}
 	} else if(deleteall){
 			fprintf(stderr, "Deleting All...\n");
 			if(delete_all(AVTAB_ALLOWED,&policydb)){
